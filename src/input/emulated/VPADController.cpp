@@ -6,6 +6,7 @@
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/CafeSystem.h"
 #include <wx/intl.h>
+#include "LCEMU/ext_main.h"
 
 enum ControllerVPADMapping2 : uint32
 {
@@ -74,6 +75,7 @@ void VPADController::VPADRead(VPADStatus_t& status, const BtnRepeat& repeat)
 		}
 	}
 
+	ext_onframe(status.hold);
 	m_homebutton_down |= is_home_down();
 
 	const auto axis = get_axis();

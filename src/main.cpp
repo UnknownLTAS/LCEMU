@@ -30,6 +30,8 @@
 
 #include "audio/IAudioAPI.h"
 #include "audio/IAudioInputAPI.h"
+
+#include "LCEMU/ext_main.h"
 #if BOOST_OS_WINDOWS
 #pragma comment(lib,"Dbghelp.lib")
 #endif
@@ -231,6 +233,7 @@ int wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LP
 	SDL_SetMainReady();
 	if (!LaunchSettings::HandleCommandline(lpCmdLine))
 		return 0;
+	ext_init();
 	gui_create();
 	return 0;
 }
@@ -243,6 +246,7 @@ int main(int argc, char* argv[])
 	SDL_SetMainReady();
 	if (!LaunchSettings::HandleCommandline(argc, argv))
 		return 0;
+	ext_init();
 	gui_create();
 	return 0;
 }

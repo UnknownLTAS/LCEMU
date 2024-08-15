@@ -1,3 +1,10 @@
+# LCEMU
+
+Modified Cemu for SMM1 TAS (Experimental)
+
+[Document(JA)]("https://github.com/UnknownLTAS/LCEMU_Document/blob/main/ja/quick_start_ja.md")
+
+# Original README:
 # **Cemu - Wii U emulator**
 
 [![Build Process](https://github.com/cemu-project/Cemu/actions/workflows/build.yml/badge.svg)](https://github.com/cemu-project/Cemu/actions/workflows/build.yml)
