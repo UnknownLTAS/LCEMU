@@ -2,7 +2,11 @@
 
 Modified Cemu for SMM1 TAS (Experimental)
 
-[Document(JA)]("https://github.com/UnknownLTAS/LCEMU_Document/blob/main/ja/quick_start_ja.md")
+[Document(JA)](https://github.com/UnknownLTAS/LCEMU_Documentation/blob/main/ja/quick_start_ja.md)
+
+## Features
+- Macro player
+- Frame Advance
 
 # Original README:
 # **Cemu - Wii U emulator**
