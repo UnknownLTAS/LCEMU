@@ -17,11 +17,12 @@ using namespace std;
 namespace fs = std::filesystem;
 
 #define TOOL_NAME "LCEMU"
-#define TOOL_VER "0.1.0"
+#define TOOL_VER "0.2.0"
 #define TOOL_VER_EX ""
 
 constexpr int CS_W = 300;
 constexpr int CS_H = 480;
+constexpr int FRAME_ADVANCE_MS = 500;
 
 std::mutex cout_mtx;
 std::mutex running_mtx;
@@ -30,32 +31,41 @@ extern WindowInfo g_window_info;
 static inline void setup_mapping(MappingData& data)
 {
 	int idx = 1;
-	// J = B
-	data.set('B', VPAD_B, 'B', idx);
-	data.set('J', VPAD_B, 'B', idx++);
-
-	data.set('A', VPAD_A, 'A', idx++);
-	data.set('Y', VPAD_Y, 'Y', idx++);
-	data.set('X', VPAD_X, 'X', idx++);
-
+	/*
+		L..........R
+		..^......X..
+		.<.>.-+.Y.A.
+		..v......B..
+	*/
+	//  L<^v>-+YXBAR
 
 	data.set('S', VPAD_L, 'L', idx);
 	data.set('L', VPAD_L, 'L', idx++);
 
-	data.set('R', VPAD_R, 'R', idx++);
-
-	data.set('V', VPAD_DOWN, 'v', idx);
-	data.set('D', VPAD_DOWN, 'v', idx++);
+	data.set('<', VPAD_LEFT, '<', idx++);
 
 	data.set('~', VPAD_UP, '^', idx);
 	data.set('U', VPAD_UP, '^', idx++);
+	
+	data.set('V', VPAD_DOWN, 'v', idx); 
+	data.set('D', VPAD_DOWN, 'v', idx++);
 
 	data.set('>', VPAD_RIGHT, '>', idx++);
-	data.set('<', VPAD_LEFT, '<', idx++);
 
+	data.set('M', VPAD_MINUS, '-', idx++);
 
 	data.set('P', VPAD_PLUS, '+', idx++);
-	data.set('M', VPAD_MINUS, '-', idx++);
+
+	data.set('Y', VPAD_Y, 'Y', idx++);
+
+	data.set('X', VPAD_X, 'X', idx++);
+
+	data.set('B', VPAD_B, 'B', idx);
+	data.set('J', VPAD_B, 'B', idx++);
+
+	data.set('A', VPAD_A, 'A', idx++);
+
+	data.set('R', VPAD_R, 'R', idx++);
 
 	data.set('N', VPAD_NULL, 0, 0); // neutral
 
@@ -68,7 +78,6 @@ static void output(const string& s, const bool new_line = true)
 	cout << s;
 	if (new_line) cout << '\n';
 }
-
 
 MacroManager macro_mgr;
 
@@ -157,7 +166,7 @@ static void ctrl_loop()
 						output("[ERROR] Please specify a file.");
 						continue;
 					}
-					string path_str = (is_load)? strs[strs.size() - 1] : prepath_str;
+					const string path_str = (is_load)? strs[strs.size() - 1] : prepath_str;
 					if (is_load) prepath_str = path_str;
 					fs::path path;
 					if (!try_eval_relative(path_str, macro_dir, path))
@@ -187,6 +196,27 @@ static void ctrl_loop()
 					keyseq_refresh(true);
 				}
 			}
+			else if (cmd == "PRINT") // debug
+			{
+				const auto& inputs = macro_mgr.get_all_inputs();
+				if (inputs.empty())
+				{
+					output("[ERROR] Macro is empty.");
+					continue;
+				}
+				int st = 0;
+				string pre = inputs[st];
+				for (int i = 1; i <= inputs.size(); i++)
+				{
+					if (inputs.size() == i || pre != inputs[i])
+					{
+						output(format("{}*{}", pre, i - st));
+						st = i;
+						if (i < inputs.size())
+							pre = inputs[i];
+					}
+				}
+			}
 			else if (cmd == "DUMPMACRO" || cmd == "DUMPMACRO2")
 			{
 				const auto& inputs = macro_mgr.get_all_inputs(); 
@@ -209,7 +239,7 @@ static void ctrl_loop()
 						continue;
 					}
 				}
-				auto npath = macro_mgr.get_now_path().string() + ".dump.txt";
+				const auto npath = macro_mgr.get_now_path().string() + ".dump.txt";
 				FILE* fp;
 				if (fopen_s(&fp, npath.c_str(), "w"))
 					output("[ERROR] Could not create a file.");
@@ -275,7 +305,7 @@ void ext_init()
 	freopen_s(&fp, "CONOUT$", "w", stdout);
 	freopen_s(&fp, "CONOUT$", "w", stderr);
 #endif
-	auto title = format("{} : {}{}", TOOL_NAME, TOOL_VER,TOOL_VER_EX);
+	const auto title = format("{} : {}{}", TOOL_NAME, TOOL_VER,TOOL_VER_EX);
 	SetConsoleTitleA(title.c_str());
 	cout << title << endl;
 	std::thread thr(ctrl_loop);
@@ -288,11 +318,11 @@ bool ext_onframe(uint32be& status)
 	// Frame Advance
 	// Todo: Config
 	if (g_window_info.get_keystate(VK_LSHIFT))
-		Sleep(500);
+		Sleep(FRAME_ADVANCE_MS);
 
 	if (macro_mgr.is_running())
 	{
-		bool ret = macro_mgr.on_frame(status);
+		const bool ret = macro_mgr.on_frame(status);
 		keyseq_refresh(false);
 		return ret;
 	}

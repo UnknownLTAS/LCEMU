@@ -9,18 +9,17 @@
 #include "vpad_ids.h"
 #include "utils.h"
 #include "macro_structs.h"
+#include "macro_compiler.h"
 
 using namespace std;
 namespace fs = std::filesystem;
-constexpr int MAX_CALL_DEPTH = 8192;
 
 struct MacroManager
 {
   private:
 	bool m_running = false;
-	map<string, vector<MacroCode>> m_sub_macro;
-	vector<MacroCode> m_main_macro;
 	RunInfo* m_now_run = nullptr;
+	Routines m_now_routines;
 	bool m_has_tstart = false;
 	bool m_withmode = false;
 	int m_current_total_frames = 0;
@@ -29,19 +28,11 @@ struct MacroManager
 	int m_requested_show_frames = -1;
 	MacroCode m_last_code;
 	fs::path m_now_path;
-	fs::path m_now_parent_path;
 	WaitEvents m_waitevent = WaitEvent_NONE;
 	vector<string> m_all_inputs;
 	MappingData m_mapping;
-
-	void macro_error(const string& mes, const int& line) const
-	{
-		put_with_color(format("[ERROR] {}: L{}", mes, line), FOREGROUND_RED);
-	}
-	void macro_warning(const string& mes, const int& line) const
-	{
-		put_with_color(format("[WARNING] {}: L{}", mes, line), FOREGROUND_GREEN);
-	}
+	
+	CompiledMacro m_compiledMacro;
 
 	void free_runinfo(RunInfo* node)
 	{
@@ -55,27 +46,18 @@ struct MacroManager
 	{
 		free_runinfo(m_now_run);
 		m_now_run = new RunInfo();
-		m_now_run->target = &m_main_macro;
+		m_now_run->target = &m_compiledMacro;
+		m_now_routines.clear();
+		m_now_routines.push(&m_compiledMacro.sub_macro_table);
 	}
 
 	void init_params()
 	{
-		m_last_code = MacroCode(MacroCode_None, -1);
+		m_last_code = MacroCode(MacroCode_None);
 		m_waitevent = WaitEvent_NONE;
 		m_last_runned_index = -1;
 		m_current_total_frames = m_has_tstart ? -1 : 0;
 		m_requested_show_frames = -1;
-	}
-	// todo: improve
-	void generate_all_inputs()
-	{
-		stop();
-		init_runinfo();
-		MacroCode next;
-		m_all_inputs.clear();
-		m_tstart_index = 0;
-		while (get_next_input(next, false))
-			m_all_inputs.emplace_back(next.strargs.at(0));
 	}
 
   public:
@@ -84,13 +66,12 @@ struct MacroManager
 		stop();
 		init_runinfo();
 		init_params();
-		m_sub_macro.clear();
-		m_main_macro.clear();
+		m_compiledMacro.clear();
 		m_has_tstart = false;
 		m_all_inputs.clear();
 	}
 
-	bool load(const fs::path& path);
+	bool load(const fs::path& abs_path);
 
 	void start(const bool with)
 	{
@@ -106,6 +87,7 @@ struct MacroManager
 		free_runinfo(m_now_run);
 		m_running = false;
 		m_now_run = nullptr;
+		m_now_routines.clear();
 		// do not init params(keep info)
 	}
 #pragma region Getter
@@ -162,42 +144,10 @@ struct MacroManager
 #pragma endregion
 
   private:
-	bool read_next(MacroCode& next)
-	{
-		auto data = m_now_run->target;
-		if (m_now_run->now_pos >= data->size()) // end of vector
-		{
-			if (m_now_run->parent != nullptr)
-			{
-				auto node = m_now_run;
-				m_now_run = node->parent;
-				delete node;
-				return read_next(next);
-			}
-			else
-			{
-				delete m_now_run;
-				m_now_run = nullptr;
-				next = MacroCode();
-				next.eof = true;
-				return false;
-			}
-		}
-		else if (m_now_run->now_step < data->at(m_now_run->now_pos).repeat)
-		{
-			m_now_run->now_step++;
-			next = data->at(m_now_run->now_pos);
-			return true;
-		}
-		else // step == rep
-		{
-			m_now_run->now_step = 0;
-			m_now_run->now_pos++;
-			return read_next(next);
-		}
-	}
+	bool read_next(MacroCode& next);
 
-	bool get_next_input(MacroCode& next, const bool runmode);
+	bool get_next_input(MacroCode& next, const bool& runmode);
+
 
   public:
 
@@ -220,7 +170,7 @@ struct MacroManager
 		if (!get_next_input(next, true))
 		{
 			stop();
-			m_last_code = MacroCode(MacroCode_None, -1);
+			m_last_code = MacroCode(MacroCode_None);
 		}
 		else
 		{

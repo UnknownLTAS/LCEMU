@@ -12,6 +12,7 @@ static int window_height = 220; // dummy
 static constexpr int FONT_SIZE = 25;
 static constexpr int X_STEP = 14;
 static constexpr int Y_STEP = 22;
+static constexpr int DPAD_BOX_SIZE = X_STEP;
 static constexpr int Y_START = 11;
 static constexpr int X_START = 11;
 static constexpr int Y_END_PADDING = 2;
@@ -25,35 +26,71 @@ static constexpr COLORREF COL_NOW_BACK = RGB(0x00, 0x00, 0x33);
 static constexpr COLORREF COL_START_END_BACK = RGB(0x3e, 0x00, 0);
 
 static constexpr COLORREF COL_PAD_LINE = RGB(0x33, 0x33, 0xbe);
-static constexpr COLORREF COL_PAD_TEXT = RGB(0, 0, 0);
+
+// static constexpr COLORREF COL_PAD_ON = RGB(0xff, 0, 0);
 static constexpr COLORREF COL_PAD_ON = COL_KEY;
-// static constexpr COLORREF COL_PAD_ON = RGB(0xFF, 0x30, 0x30);
-//static constexpr COLORREF COL_PAD_ON = RGB(0x00, 0x55, 0xff);
 static constexpr COLORREF COL_PAD_OFF = COL_NO_KEY;
+
 static HWND hwnd;
 
 static MacroManager* mgrp;
 
+static constexpr int SHOW_FRAME_MODE_NONE = 0;
+static constexpr int SHOW_FRAME_MODE_PART = 1;
+static constexpr int SHOW_FRAME_MODE_FULL = 2;
 
-static constexpr int SHOWMODE_NONE = 0;
-static constexpr int SHOWMODE_PART = 1;
-static constexpr int SHOWMODE_FULL = 2;
-static int cfg_pre_seq = 3;
-static bool cfg_now_as_pad = true;
-static int cfg_show_frames = SHOWMODE_PART;
+static constexpr int SHOW_MODE_LINE = 0;
+static constexpr int SHOW_MODE_PAD = 1;
+// default cfgs
+static int cfg_show_next = 3;
+static int cfg_show_mode = SHOW_MODE_PAD;
+static int cfg_show_frames = SHOW_FRAME_MODE_NONE;
 
-bool keyseq_config_validate(const int& preseq, const bool& now_as_pad, const int& show_frame_mode) {
-	if (preseq < 0 || preseq > 256)
+/*
+L..........R
+..^......X..
+.<.>.-+.Y.A.
+..v......B..
+*/
+// row, column, ID, char
+static const tuple<int, int, VPAD_IDS, const char*> PAD_DATA[] = {
+	{0, 0, VPAD_L, "L"},
+	{0, 11, VPAD_R, "R"},
+
+	{1, 9, VPAD_X, "X"},
+
+
+	{2, 5, VPAD_MINUS, "-"},
+	{2, 6, VPAD_PLUS, "+"},
+	{2, 8, VPAD_Y, "Y"},
+	{2, 10, VPAD_A, "A"},
+
+	{3, 9, VPAD_B, "B"}
+};
+
+// row, column, ID
+static const tuple<int, int, VPAD_IDS> DPAD_DATA[]{
+	{1, 2, VPAD_UP},
+	{2, 1, VPAD_LEFT},
+	{2, 3, VPAD_RIGHT},
+	{3, 2, VPAD_DOWN},
+};
+
+static POINT points_buffer[3];
+
+bool keyseq_config_validate(const int& nextf, const int& show_mode, const int& show_frame_mode){
+	if (nextf < 0 || nextf > 256)
 		return false;
-	if (show_frame_mode < 0 || show_frame_mode > SHOWMODE_FULL)
+	if (show_frame_mode < 0 || show_frame_mode > SHOW_FRAME_MODE_FULL)
+		return false;
+	if (show_mode < 0 || show_mode > SHOW_MODE_PAD)
 		return false;
 	return true;
 }
 
-
 static bool resize_request = true;
 
-static const string& get_data(const int& pos) {
+inline static const string& get_data(const int& pos) {
 	if (pos < 0)
 		return mgrp->get_mapping().empty_show;
 	if (pos >= mgrp->get_all_inputs().size())
@@ -75,9 +112,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 	{
 		{
 			hdc = BeginPaint(hwnd, &ps);
+			SetGraphicsMode(hdc, GM_ADVANCED);
 			const HFONT hf = CreateFontW(FONT_SIZE, 0, 0, 0, FW_BOLD, 0, 0, 0,
 								   ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, PROOF_QUALITY,
 								   FIXED_PITCH | FF_SWISS, NULL);
+
 			const auto fnttmp = SelectObject(hdc, hf);
 
 			int nowy = Y_START;
@@ -85,18 +124,19 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 			const auto bkback = GetBkColor(hdc);
 
 			SetBkColor(hdc, 0);
+			const bool pad_mode = cfg_show_mode == SHOW_MODE_PAD;
 			// inputs
 			{
-				const int row = cfg_pre_seq + (int)(!cfg_now_as_pad);
+				const int row = cfg_show_next + (int)(!pad_mode);
 				for (int i = 0; i < row; i++)
 				{
-					const int tar = mgrp->get_last_runned_input_index() + (row - (int)(!cfg_now_as_pad) - i);
+					const int tar = mgrp->get_last_runned_input_index() + (row - (pad_mode?0:1) - i);
 					const size_t all_input_sz = mgrp->get_all_inputs().size();
 					if (all_input_sz != 0 && (tar == mgrp->get_tstart_index() || tar + 1 == all_input_sz))
 					{
 						SetBkColor(hdc, COL_START_END_BACK);
 					}
-					else if (i + 1 == row && !cfg_now_as_pad)
+					else if (i + 1 == row && !pad_mode)
 					{
 						SetBkColor(hdc, COL_NOW_BACK);
 					}
@@ -133,10 +173,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 			//	TextOutA(hdc, X_START, nowy - Y_STEP, "[WAITING...]", lstrlenA("[WAITING...]"));
 			//}
 		
-			if(cfg_now_as_pad) { // dirty :(
+			if(pad_mode) {
 				SetBkColor(hdc, 0);
 				nowy++;
-				if (cfg_pre_seq > 0)
+				if (cfg_show_next > 0)
 				{ // split line
 					const auto hPen = CreatePen(PS_SOLID, PAD_LINE_HEIGHT, COL_PAD_LINE);
 					const auto hOldPen = SelectObject(hdc, hPen);
@@ -148,53 +188,49 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 				}
 				const auto last_input = mgrp->get_last_input().input_status;
 
-				//const auto hOffBrush = CreateSolidBrush(COL_PAD_OFF);
-				//const auto hOnBrush = CreateSolidBrush(COL_PAD_ON);
-				//const auto hOldBrush = SelectObject(hdc, hOffBrush);
-				//const auto oldMode = SetBkMode(hdc, TRANSPARENT);
-				//SetTextColor(hdc, COL_PAD_TEXT);
-				#define PUT(idx, v, c) \
-					SetTextColor(hdc,(last_input & v) == 0 ? COL_PAD_OFF : COL_PAD_ON); \
-				/* SelectObject(hdc, (last_input & v) == 0 ? hOffBrush : hOnBrush); \
-					Rectangle(hdc, X_START + X_STEP * idx, nowy, X_START + X_STEP * idx + X_STEP, nowy + Y_STEP); */ \
-					TextOutA(hdc, X_START + X_STEP * idx, nowy, c, lstrlenA(c)); 
-				/*
-				L..........R
-				..U......X..
-				.<.>.-+.Y.A.
-				..v......B..
-				*/
-				PUT(0, VPAD_L, "L");
-				PUT(11, VPAD_R, "R");
-				nowy += Y_STEP;
-				PUT(2, VPAD_UP, "^");
-				PUT(9, VPAD_X, "X");
-				nowy += Y_STEP;
-				PUT(1, VPAD_LEFT, "<");
-				PUT(3, VPAD_RIGHT, ">");
-				PUT(5, VPAD_MINUS, "-");
-				PUT(6, VPAD_PLUS, "+");
-				PUT(8, VPAD_Y, "Y");
-				PUT(10, VPAD_A, "A");
-				nowy += Y_STEP;
-				PUT(2, VPAD_DOWN, "v");
-				PUT(9, VPAD_B, "B");
-				#undef PUT
-				nowy += FONT_SIZE;
+				for (const auto& [row, idx, v, c] : PAD_DATA)
+				{
+					const int y = nowy +Y_STEP * row;
+					SetTextColor(hdc, ((last_input & v) == 0) ? COL_PAD_OFF : COL_PAD_ON);
+					TextOutA(hdc, X_START + X_STEP * idx, y, c, lstrlenA(c));
+				}
+				// DPAD Triangles
+				for (const auto& [row, idx, v] : DPAD_DATA)
+				{
+					const int top_y = nowy + Y_STEP * row;
+					const int bottom_y = top_y + Y_STEP;
+					const int left_x = X_START + X_STEP * idx; 
+					const int right_x = left_x + X_STEP;
+					const auto br_back = SelectObject(hdc, CreateSolidBrush(((last_input & v) == 0) ? COL_PAD_OFF : COL_PAD_ON));
+					if ((v & VPAD_DOWN) | (v & VPAD_UP))
+					{
+						const int mid_x = (left_x + right_x) >> 1;
+						const bool IS_UP = v & VPAD_UP;
+						points_buffer[0] = {mid_x - (DPAD_BOX_SIZE >> 1), IS_UP ? bottom_y : top_y};
+						points_buffer[1] = {mid_x + (DPAD_BOX_SIZE >> 1), IS_UP ? bottom_y : top_y};
+						points_buffer[2] = {mid_x, IS_UP? bottom_y - DPAD_BOX_SIZE : top_y + DPAD_BOX_SIZE};
+					}
+					else // left or right
+					{
+						const int mid_y = (top_y + bottom_y) >> 1;
+						const bool IS_RIGHT = v & VPAD_RIGHT;
+						points_buffer[0] = {IS_RIGHT ? left_x : right_x, mid_y - (DPAD_BOX_SIZE >> 1)};
+						points_buffer[1] = {IS_RIGHT ? left_x : right_x, mid_y + (DPAD_BOX_SIZE >> 1)};
+						points_buffer[2] = {IS_RIGHT ? left_x + DPAD_BOX_SIZE : right_x - DPAD_BOX_SIZE, mid_y};
+					}
+					Polygon(hdc, points_buffer, 3);
+					DeleteObject(SelectObject(hdc, br_back));
+				}
 
-				//SetBkMode(hdc, oldMode);
-				//SelectObject(hdc, hOldBrush);
-				//DeleteObject(hOffBrush);
-				//DeleteObject(hOnBrush);
-
+				nowy += Y_STEP * 3 + FONT_SIZE;
 			}
 
-			if (cfg_show_frames != SHOWMODE_NONE) 
+			if (cfg_show_frames != SHOW_FRAME_MODE_NONE) 
 			{ // frame
 				const bool is_finished = !mgrp->is_running();
 				int tar_frame;
 
-				if (cfg_show_frames == SHOWMODE_FULL || is_finished)
+				if (cfg_show_frames == SHOW_FRAME_MODE_FULL || is_finished)
 					tar_frame = mgrp->get_now_frame_count();
 				else if (mgrp->get_requested_show_frames() >= 0) 
 					tar_frame = mgrp->get_requested_show_frames();
@@ -271,9 +307,9 @@ void keyseq_set_window_pos(const int& x, const int& y) {
 	SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_SHOWWINDOW | SWP_NOSIZE);
 }
 
-void keyseq_change_config(const int& preseq, const bool& now_as_pad, const int& show_frame_mode) {
-	cfg_pre_seq = preseq;
-	cfg_now_as_pad = now_as_pad;
+void keyseq_change_config(const int& nextf, const int& show_mode, const int& show_frame_mode){
+	cfg_show_next = nextf;
+	cfg_show_mode = show_mode;
 	cfg_show_frames = show_frame_mode;
 	resize_request = true;
 	keyseq_refresh(true);
