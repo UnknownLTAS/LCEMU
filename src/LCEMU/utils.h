@@ -14,6 +14,7 @@ std::string pad_left(const std::string& v, const char pad, const int padlen);
 std::vector<std::string> split_space(const std::string& str);
 
 bool try_eval_relative(const std::filesystem::path& p, const std::filesystem::path& bs, std::filesystem::path& ret);
+bool try_eval_relative_weak(const std::filesystem::path& p, const std::filesystem::path& bs, std::filesystem::path& ret);
 void put_with_color(const std::string& mes, const int& color);
 void clear_screen(const char& fill = ' ');
 

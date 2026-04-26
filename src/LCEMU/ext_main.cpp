@@ -17,7 +17,7 @@ using namespace std;
 namespace fs = std::filesystem;
 
 #define TOOL_NAME "LCEMU"
-#define TOOL_VER "0.2.0"
+#define TOOL_VER "0.3.0"
 #define TOOL_VER_EX ""
 
 constexpr int CS_W = 300;
@@ -27,6 +27,8 @@ constexpr int FRAME_ADVANCE_MS = 500;
 std::mutex cout_mtx;
 std::mutex running_mtx;
 extern WindowInfo g_window_info;
+static const fs::path macro_dir = fs::current_path() / "macro";
+static MacroManager macro_mgr(macro_dir);
 
 static inline void setup_mapping(MappingData& data)
 {
@@ -79,11 +81,8 @@ static void output(const string& s, const bool new_line = true)
 	if (new_line) cout << '\n';
 }
 
-MacroManager macro_mgr;
-
 static void ctrl_loop()
 {
-	const fs::path macro_dir = fs::current_path() / "macro";
 	string prepath_str = "./macro.txt";
 	while (1)
 	{
@@ -91,6 +90,13 @@ static void ctrl_loop()
 		output("> ", false);
 
 		getline(cin, instr);
+		if (cin.fail() || cin.eof())
+		{
+			clear_screen();
+			cin.clear();
+			continue;
+		}
+		else
 		{
 			std::lock_guard<std::mutex> _l(running_mtx);
 			boost::trim(instr);
@@ -168,17 +174,10 @@ static void ctrl_loop()
 					}
 					const string path_str = (is_load)? strs[strs.size() - 1] : prepath_str;
 					if (is_load) prepath_str = path_str;
-					fs::path path;
-					if (!try_eval_relative(path_str, macro_dir, path))
-					{
-						output("[ERROR] File not found: " + path_str);
-						output("Load failed");
-						continue;
-					}
 					bool loadret;
 					{
 						std::lock_guard<std::mutex> _l(cout_mtx);
-						loadret = macro_mgr.load(path);
+						loadret = macro_mgr.load(path_str, /* ignoreCountUp: */ is_load);
 					}
 					if (!loadret)
 					{
@@ -204,23 +203,13 @@ static void ctrl_loop()
 					output("[ERROR] Macro is empty.");
 					continue;
 				}
-				int st = 0;
-				string pre = inputs[st];
-				for (int i = 1; i <= inputs.size(); i++)
-				{
-					if (inputs.size() == i || pre != inputs[i])
-					{
-						output(format("{}*{}", pre, i - st));
-						st = i;
-						if (i < inputs.size())
-							pre = inputs[i];
-					}
-				}
+				for (const auto& [data, l, r] : macro_mgr.generate_compressed_inputs())
+					output(format("{}*{}", data, r - l));
 			}
 			else if (cmd == "DUMPMACRO" || cmd == "DUMPMACRO2")
 			{
-				const auto& inputs = macro_mgr.get_all_inputs(); 
-				if (inputs.empty())
+				const auto input_size = macro_mgr.get_all_inputs().size(); 
+				if (input_size == 0)
 				{
 					output("[ERROR] Macro is empty.");
 					continue;
@@ -233,7 +222,7 @@ static void ctrl_loop()
 						output("[ERROR] Parse error.");
 						continue;
 					}
-					else if (offset >= inputs.size() || offset < 0)
+					else if (offset >= input_size || offset < 0)
 					{
 						output("[ERROR] Out of range.");
 						continue;
@@ -245,7 +234,7 @@ static void ctrl_loop()
 					output("[ERROR] Could not create a file.");
 				else
 				{
-					bool rle_style = cmd == "DUMPMACRO2";
+					const bool rle_style = cmd == "DUMPMACRO2";
 					if (rle_style)
 					{
 						fprintf(fp, "input,length\n");
@@ -254,28 +243,18 @@ static void ctrl_loop()
 					{
 						fprintf(fp, "start(f),end(f),input\n");
 					}
-					string pre = inputs[offset];
-					int st = offset;
-					for (int i = offset + 1; i <= inputs.size(); i++)
+					for (const auto& [data, l, r] : macro_mgr.generate_compressed_inputs(offset))
 					{
-						if (inputs.size() == i || pre != inputs[i])
+						if (rle_style)
 						{
-							const int l = st + 1 - offset;
-							const int r = i - offset;
-							if (rle_style)
-							{
-								fprintf(fp, "%s,%d\n", pre.c_str(),r - l + 1);
-							}
-							else
-							{
-								fprintf(fp, "%d,%d,%s\n", l, r, pre.c_str());
-							}
-							st = i;
-							if (i < inputs.size())
-								pre = inputs[i];
+							fprintf(fp, "%s,%lld\n", data.c_str(), r - l);
+						}
+						else
+						{
+							// convert to 1-indexed, [l, r]
+							fprintf(fp, "%lld,%lld,%s\n", l + 1, r, data.c_str());
 						}
 					}
-
 					fclose(fp);
 					output("Success");
 				}

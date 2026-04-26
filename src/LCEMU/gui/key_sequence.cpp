@@ -284,7 +284,7 @@ static void window_main()
 		return;
 	ShowWindow(hwnd, SW_SHOW);
 	SetWindowPos(hwnd, HWND_TOPMOST, 0, 110, WINDOW_W, window_height, SWP_SHOWWINDOW);
-	FixWindowCornor(hwnd);
+	FixWindowCorner(hwnd);
 	UpdateWindow(hwnd);
 	MessageLoop(hwnd);
 

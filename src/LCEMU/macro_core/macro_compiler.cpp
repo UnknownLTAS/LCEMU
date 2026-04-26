@@ -5,7 +5,6 @@
 constexpr int SLP_DEFAULT_MS = 500;
 constexpr int SLPL_MS = 1000;
 
-
 inline static bool isLabel(const string& str)
 {
 	return !str.empty() && str[0] == '@';
@@ -31,9 +30,9 @@ inline static void deleteComment(string& str)
 
 struct Compiler
 {
-
-	Compiler(const MappingData* mapping)
-		: m_mapping(mapping)
+	CompileOption m_option;
+	Compiler(const MappingData* mapping, const CompileOption& option)
+		: m_mapping(mapping), m_option(option)
 	{
 	}
 
@@ -70,6 +69,7 @@ struct Compiler
 
 #define ERROR_RETURN(msg) return m_messages.emplace_back(MSG_ERROR, msg, file_path, lineno), false;
 #define WARNING(msg) (m_messages.emplace_back(MSG_WARNING, msg, file_path, lineno));
+#define INFO(msg) (m_messages.emplace_back(MSG_INFO, msg, file_path, lineno));
 #define COMPILE_INFO (CompileInfo{file_id, lineno})
 
 	bool compile(
@@ -77,7 +77,8 @@ struct Compiler
 		CompiledMacro& result,
 		const std::filesystem::path& file_path,
 		int& lineno,
-		const bool& require_end
+		const bool& require_end,
+		Label* end_label = nullptr
 	)
 	{
 		const auto file_id = m_file_table.getId(file_path.string());
@@ -89,8 +90,16 @@ struct Compiler
 			boost::trim(line);
 			if (line.empty())
 				continue;
-			if (isLabel(line))
+			string label_name;
+			if (getLabelName(line, label_name))
+			{
+				if (end_label != nullptr && label_name == end_label->name)
+				{
+					end_label->found = true;
+					return true;
+				}
 				continue;
+			}
 			vector<string> dats;
 			boost::split(dats, line, boost::is_any_of("*")); // repeater
 			int rep = 1;
@@ -109,11 +118,11 @@ struct Compiler
 				continue;
 			}
 
-			// auto def_dat = dats[0];
+			const string raw_dats0 = dats[0];
 			boost::to_upper(dats[0]);
 			if (dats[0].starts_with('!')) // command
 			{
-				vector<string> subcmd = split_space(dats[0]);
+				const vector<string> subcmd = split_space(dats[0]);
 
 				if (subcmd[0] == "!SLP")
 				{
@@ -196,7 +205,8 @@ struct Compiler
 			}
 			else if (dats[0].starts_with('#'))
 			{
-				vector<string> subcmd = split_space(dats[0]);
+				const vector<string> subcmd = split_space(dats[0]);
+				const vector<string> raw_subcmd = split_space(raw_dats0);
 				if (rep > 1)
 				{
 					WARNING(format("Can't repeat preprocessors: {}", subcmd[0]));
@@ -220,16 +230,50 @@ struct Compiler
 
 					result.sub_macro_table.emplace(rid, sub_macro);
 				}
+				else if (subcmd[0] == "#COUNTUP")
+				{
+					if (m_option.ignoreCountUp)
+					{
+						INFO("Ignored: #COUNTUP");
+						continue;
+					}
+					if (subcmd.size() != 2)
+						ERROR_RETURN("Arg error");
+					filesystem::path path;
+					if (!try_eval_relative_weak(filesystem::path(raw_subcmd.back()), file_path.parent_path(), path))
+						ERROR_RETURN("Path error:" + raw_subcmd.back());
+					int now_count = 0;
+					if (fs::exists(path))
+					{
+						ifstream countfile(path);
+						if (!countfile.is_open())
+							ERROR_RETURN("File cannot open:" + path.string());
+						string countstr;
+						std::getline(countfile, countstr);
+						boost::trim(countstr);
+						if (!countstr.empty() && !try_int(countstr, now_count, 0))
+							ERROR_RETURN("Cannot parse current count:" + path.string());
+					}
+
+
+					{
+						ofstream countfile(path);
+						if (!countfile.is_open())
+							ERROR_RETURN("Error writing to file" + path.string());
+						countfile << now_count + 1 << endl;
+						countfile.close();
+					}
+
+				}
 				else if (subcmd[0] == "#LOAD")
 				{
-					int skip;
-					if (subcmd.size() != 2 && subcmd.size() != 3)
+					if (subcmd.size() < 2 && subcmd.size() > 4)
 					{
 						ERROR_RETURN("Arg error");
 					}
 					
 					filesystem::path path;
-					if (!try_eval_relative(filesystem::path(subcmd.back()), file_path.parent_path(), path) || !filesystem::exists(path))
+					if (!try_eval_relative(filesystem::path(raw_subcmd.back()), file_path.parent_path(), path) || !filesystem::exists(path))
 					{
 						ERROR_RETURN("File not found:" + path.string());
 					}
@@ -245,11 +289,29 @@ struct Compiler
 					}
 					else
 					{
-						bool labelok;
-						if (!compile(path, subcmd[1], result, labelok))
-							return false;
-						if (!labelok)
-							WARNING( format("Undefined label \"{}\"", subcmd[1]) );
+						Label start(subcmd[1]);
+						if (subcmd.size() == 3)
+						{
+							if (!compile(path, {&start, nullptr}, result))
+								return false;
+							if (!start.found)
+								WARNING(format("Undefined label \"{}\"", subcmd[1]));
+						}
+						else
+						{
+							Label last(subcmd[2]);
+							if (!compile(path, {&start, &last}, result))
+								return false;
+							if (!start.found)
+							{
+								WARNING(format("Undefined label \"{}\"", subcmd[1]));
+							}
+							else if (!last.found)
+							{
+								WARNING(format("Undefined label \"{}\"", subcmd[2]));
+							}
+						}
+
 					}
 
 					m_parent_file_ids.erase(load_file);
@@ -319,6 +381,7 @@ struct Compiler
 		lineno++;
 		if (require_end)
 			ERROR_RETURN("Excepted: END");
+			
 		return true;
 	}
 
@@ -331,29 +394,27 @@ struct Compiler
 		return ret;
 	}
 
-	bool compile(const filesystem::path& file_path, const string& label, CompiledMacro& result, bool& foundLabel)
+	bool compile(const filesystem::path& file_path, const pair<Label*, Label*>& labels, CompiledMacro& result)
 	{
 		std::ifstream infile(file_path);
 		int lineno = 0;
 		string line;
-		foundLabel = false;
 		string label_data;
+		assert(labels.first != nullptr);
 		while (std::getline(infile, line))
 		{
 			lineno++;
 			deleteComment(line);
 			boost::trim(line);
-			if (getLabelName(line, label_data) && label_data == label)
+			if (getLabelName(line, label_data) && label_data == labels.first->name)
 			{
-				foundLabel = true;
+				labels.first->found = true;
 				break;
 			}
 		}
-		if (!foundLabel)
-		{
+		if (!labels.first->found)
 			return true;
-		}
-		const bool ret = compile(infile, result, filesystem::absolute(file_path), lineno, false);
+		const bool ret = compile(infile, result, filesystem::absolute(file_path), lineno, false, labels.second);
 		infile.close();
 		return ret;
 	}
@@ -400,9 +461,9 @@ struct Compiler
 	}
 }; // struct Compiler
 
-bool compile(const filesystem::path& file, const MappingData& mapping, CompileResult& result)
+bool compile(const filesystem::path& file, const MappingData& mapping, CompileResult& result, const CompileOption& option)
 {
-	Compiler compiler(&mapping);
+	Compiler compiler(&mapping, option);
 	compiler.init();
 	bool ret = compiler.run(file, result.macro);
 	if (ret)

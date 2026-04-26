@@ -96,21 +96,24 @@ std::vector<std::string> split_space(const std::string& str)
 
 bool try_eval_relative(const std::filesystem::path& p, const std::filesystem::path& bs, std::filesystem::path& ret)
 {
-	if (p.is_relative())
+	try
 	{
-		try
-		{
-			ret = std::filesystem::canonical(bs / p);
-			return true;
-		} catch (...)
-		{
-			return false;
-		}
-	}
-	else
-	{
-		ret = p;
+		ret = p.is_relative() ?  std::filesystem::canonical(bs / p) : p;
 		return true;
+	} catch (...)
+	{
+		return false;
+	}
+}
+bool try_eval_relative_weak(const std::filesystem::path& p, const std::filesystem::path& bs, std::filesystem::path& ret)
+{
+	try
+	{
+		ret = p.is_relative() ? std::filesystem::weakly_canonical(bs / p) : p;
+		return true;
+	} catch (...)
+	{
+		return false;
 	}
 }
 

@@ -1,4 +1,10 @@
 # Changes
+## ver 0.3.0
+### CUI
+* Alleviate the effects of Ctrl+C
+
+### Macro
+* Preprocessors: Add `#LOAD [start] [end] [path]`, `#COUNTUP`
 
 ## ver 0.2.0
 ### CUI

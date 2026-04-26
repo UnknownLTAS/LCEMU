@@ -66,7 +66,7 @@ bool MacroManager::get_next_input(MacroCode& next, const bool& runmode)
 			{
 			case MacroCode_TSTART:
 				m_has_tstart = true;
-				// current size = index
+				// current m_all_inputs size = index
 				m_tstart_index = m_all_inputs.size();
 				break;
 			}
@@ -120,27 +120,28 @@ static inline bool printMessages(const vector<MacroMessage>& messages) {
 			type = "WARNING";
 			color = FOREGROUND_GREEN;
 		}
-		else // info (unused)
+		else
 		{
 			type = "INFO";
-			color = FOREGROUND_BLUE; 
+			color = FOREGROUND_BLUE | FOREGROUND_RED; 
 		}
 		put_with_color(format("[{}] {}: L{} ({})", type, msg.message, msg.line, msg.file.string()), color);
 	}
 	return err;
 }
 
-bool MacroManager::load(const fs::path& path)
+bool MacroManager::load(const fs::path& path, const bool& ignoreCountUp)
 {
-	if (!fs::exists(path))
+	fs::path abs_path;
+	if (!try_eval_relative(path, m_working_dir, abs_path) || !fs::exists(abs_path))
 	{
 		put_with_color("[ERROR] File not found : " + path.string(), FOREGROUND_RED);
 		return false;
 	}
 	unload();
-	m_now_path = path;
+	m_now_path = abs_path;
 	CompileResult res;
-	const bool ret = compile(path, m_mapping, res);
+	const bool ret = compile(m_now_path, m_mapping, res, {ignoreCountUp});
 	printMessages(res.messages);
 	if (!ret)
 		return unload(), false;
@@ -155,4 +156,26 @@ bool MacroManager::load(const fs::path& path)
 		m_all_inputs.emplace_back(next.strargs.at(0));
 
 	return true;
+}
+
+
+// 0-indexed, [l, r)
+const vector<tuple<string, size_t, size_t>> MacroManager::generate_compressed_inputs(const size_t& offset) const
+{
+	if (offset >= m_all_inputs.size())
+		return {};
+	string pre = m_all_inputs[offset];
+	size_t st = offset;
+	vector<tuple<string, size_t, size_t>> ret; 
+	for (size_t i = offset + 1; i <= m_all_inputs.size(); i++)
+	{
+		if (m_all_inputs.size() == i || pre != m_all_inputs[i])
+		{
+			ret.emplace_back(pre, st - offset, i - offset);
+			st = i;
+			if (i < m_all_inputs.size())
+				pre = m_all_inputs[i];
+		}
+	}
+	return ret;
 }

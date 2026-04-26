@@ -24,10 +24,11 @@ struct MacroManager
 	bool m_withmode = false;
 	int m_current_total_frames = 0;
 	int m_last_runned_index = -1;
-	int m_tstart_index;
+	int m_tstart_index = 0;
 	int m_requested_show_frames = -1;
 	MacroCode m_last_code;
 	fs::path m_now_path;
+	fs::path m_working_dir;
 	WaitEvents m_waitevent = WaitEvent_NONE;
 	vector<string> m_all_inputs;
 	MappingData m_mapping;
@@ -61,6 +62,11 @@ struct MacroManager
 	}
 
   public:
+	MacroManager()
+		: m_working_dir(fs::current_path()) {}
+	MacroManager(const fs::path& working_dir)
+		: m_working_dir(working_dir) {}
+
 	void unload()
 	{
 		stop();
@@ -71,7 +77,7 @@ struct MacroManager
 		m_all_inputs.clear();
 	}
 
-	bool load(const fs::path& abs_path);
+	bool load(const fs::path& abs_path, const bool& ignoreCountUp);
 
 	void start(const bool with)
 	{
@@ -186,5 +192,7 @@ struct MacroManager
 		m_last_runned_index++;
 		return m_running;
 	}
+
+	const vector<tuple<string, size_t, size_t>> generate_compressed_inputs(const size_t& offset = 0) const;
 };
 

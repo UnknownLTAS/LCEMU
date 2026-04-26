@@ -37,7 +37,7 @@ void MessageLoop(const HWND& hwnd) {
 	}
 }
 
-bool FixWindowCornor(const HWND& hwnd)
+bool FixWindowCorner(const HWND& hwnd)
 {
 	const DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_DONOTROUND;
 	return S_OK == DwmSetWindowAttribute(

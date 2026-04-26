@@ -9,4 +9,8 @@
 using namespace std;
 constexpr int MAX_CALL_DEPTH = 512;
 
-bool compile(const filesystem::path& file, const MappingData& mapping, CompileResult& result);
+struct CompileOption {
+	bool ignoreCountUp;
+};
+
+bool compile(const filesystem::path& file, const MappingData& mapping, CompileResult& result, const CompileOption& option);

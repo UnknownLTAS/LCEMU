@@ -122,6 +122,14 @@ struct Routines
 
 };
 
+struct Label
+{
+	std::string name;
+	bool found = false;
+	Label(const std::string& _name)
+		: name(_name) {}
+};
+
 
 enum MacroMessageType
 {
